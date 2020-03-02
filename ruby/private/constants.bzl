@@ -31,11 +31,15 @@ RUBY_ATTRS = {
         allow_single_file = True,
     ),
     "force_gem_pristine": attr.string_list(
-        doc = "Jank hack. Run gem pristine on some gems that don't handle symlinks well",
+        doc = "List of gem names to be restored to pristine state. More details can be read by running 'gem pristine --help''",
     ),
-    "_wrapper_template": attr.label(
+    "_binary_wrapper": attr.label(
         allow_single_file = True,
-        default = "binary_wrapper.tpl",
+        default = "binary_wrapper.rb",
+    ),
+    "_sdk_configuration_template": attr.label(
+        allow_single_file = True,
+        default = "sdk_configuration.tpl.rb",
     ),
     "_misc_deps": attr.label_list(
         allow_files = True,

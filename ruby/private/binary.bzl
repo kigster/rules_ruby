@@ -59,16 +59,15 @@ def ruby_binary_macro(ctx, main, srcs):
     rubyopt = reversed(deps.rubyopt.to_list())
 
     ctx.actions.expand_template(
-        template = ctx.file._wrapper_template,
+        template = ctx.file._sdk_configuration,
         output = executable,
         substitutions = {
-            "{loadpaths}": repr(deps.incpaths.to_list()),
-            "{rubyopt}": repr(rubyopt),
-            "{main}": repr(_to_manifest_path(ctx, main)),
+            "{loadpaths}": ",".join(deps.incpaths.to_list()),
+            "{rubyopt}": ",".join(rubyopt),
+            "{main}": ",".join(_to_manifest_path(ctx, main)),
             "{interpreter}": _to_manifest_path(ctx, interpreter),
-            "{gem_path}": gem_path,
-            "{should_gem_pristine}": str(len(gems_to_pristine) > 0).lower(),
-            "{gems_to_pristine}": " ".join(gems_to_pristine),
+            "{gem_path}": ",".join(gem_path),
+            "{gems_to_pristine}": ",".join(gems_to_pristine),
         },
     )
 

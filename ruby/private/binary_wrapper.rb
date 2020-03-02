@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
 
 # Ruby-port of the Bazel's wrapper script for Python
 
@@ -19,12 +20,17 @@
 #
 
 require 'rbconfig'
+require_relative 'sdk_configuration.rb'
 
 # Ruby 2.4 and older does not have +.children+
 # So we define it.
 unless Dir.respond_to?(:children)
-  Dir.define_method :children do |dir|
-    Dir.entries(dir).reject { |entry| %w(. ..).include?(entry) }
+  Dir.instance_eval do
+    class << self
+      define_method :children do |dir|
+        Dir.entries(dir).reject { |entry| %w(. ..).include?(entry) }
+      end
+    end
   end
 end
 
@@ -48,13 +54,13 @@ def find_runfiles
 end
 
 def create_loadpath_entries(custom, runfiles)
-  [runfiles] + custom.map {|path| File.join(runfiles, path) }
+  [runfiles] + custom.map { |path| File.join(runfiles, path) }
 end
 
 def get_repository_imports(runfiles)
-  Dir.children(runfiles).map {|d|
+  Dir.children(runfiles).map { |d|
     File.join(runfiles, d)
-  }.select {|d|
+  }.select { |d|
     File.directory? d
   }
 end
@@ -75,39 +81,50 @@ def runfiles_envvar(runfiles)
 
   # Look for the runfiles "output" manifest, argv[0] + ".runfiles_manifest"
   manifest = runfiles + '_manifest'
-  if File.exists?(manifest)
+  if File.exist?(manifest)
     return ['RUNFILES_MANIFEST_FILE', manifest]
   end
 
   # Look for the runfiles "input" manifest, argv[0] + ".runfiles/MANIFEST"
   manifest = File.join(runfiles, 'MANIFEST')
-  if File.exists?(manifest)
+  if File.exist?(manifest)
     return ['RUNFILES_DIR', manifest]
   end
 
   # If running in a sandbox and no environment variables are set, then
   # Look for the runfiles  next to the binary.
-  if runfiles.end_with?('.runfiles') and File.directory?(runfiles)
-    return ['RUNFILES_DIR', runfiles]
-  end
+  return unless runfiles.end_with?('.runfiles') && File.directory?(runfiles)
+
+  ['RUNFILES_DIR', runfiles]
 end
 
-def find_ruby_binary
-  File.join(
+def ruby_binary
+  @ruby_binary ||= File.join(
     RbConfig::CONFIG['bindir'],
     RbConfig::CONFIG['ruby_install_name'],
   )
 end
 
-def find_gem_binary
-  File.join(
+def gem_binary
+  @gem_binary ||= File.join(
     RbConfig::CONFIG['bindir'],
     'gem',
   )
 end
 
+# This is a hack because some of our gems are having issues with how
+# they are being installed. Most gems are fine, but this fixes the ones that
+# aren't. Put it here instead of in the library because we want to fix the
+# underlying issue and then tear this out.
+def gem_pristine(gems = [])
+  return if gems.empty?
+
+  puts "Restoring the following gems to pristine state: #{gems.join(',')}"
+  puts `#{gem_binary} pristine --silent #{gems.join(' ')}`
+end
+
 def main(args)
-  custom_loadpaths = {loadpaths}
+  custom_loadpaths = RubyRules::LOADPATH
   runfiles = find_runfiles
 
   loadpaths = create_loadpath_entries(custom_loadpaths, runfiles)
@@ -118,14 +135,12 @@ def main(args)
   runfiles_envkey, runfiles_envvalue = runfiles_envvar(runfiles)
   ENV[runfiles_envkey] = runfiles_envvalue if runfiles_envkey
 
-  ENV["GEM_PATH"] = File.join(runfiles, "{gem_path}") if "{gem_path}"
-  ENV["GEM_HOME"] = File.join(runfiles, "{gem_path}") if "{gem_path}"
+  ENV["GEM_PATH"] = File.join(runfiles, RubyRules::GEM_PATH) if RubyRules::GEM_PATH
+  ENV["GEM_HOME"] = ENV["GEM_PATH"]
 
-  ruby_program = find_ruby_binary
-
-  main = {main}
   main = File.join(runfiles, main)
-  rubyopt = {rubyopt}.map do |opt|
+
+  rubyopt = RubyRules::RUBY_OPTS.map do |opt|
     opt.gsub(/\${(.+?)}/o) do
       case $1
       when 'RUNFILES_DIR'
@@ -136,15 +151,7 @@ def main(args)
     end
   end
 
-  # This is a jank hack because some of our gems are having issues with how
-  # they are being installed. Most gems are fine, but this fixes the ones that
-  # aren't. Put it here instead of in the library because we want to fix the
-  # underlying issue and then tear this out.
-  if {should_gem_pristine} then
-    gem_program = find_gem_binary
-    puts "Running pristine on {gems_to_pristine}"
-    system(gem_program + " pristine {gems_to_pristine}")
-  end
+  gem_pristine RulesRuby::MODE_GEM_PRISTINE
 
   exec(ruby_program, *rubyopt, main, *args)
   # TODO(yugui) Support windows
